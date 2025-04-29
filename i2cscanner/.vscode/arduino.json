@@ -1,0 +1,19 @@
+{
+    "board": "esp32:esp32:esp32s3",
+    "port": "COM11",
+    "sketch": "mainrotatorcode.ino",
+    "configuration": [
+      "USB_OTG_CDC=cdc",
+      "PSRAM=disabled",
+      "PartitionScheme=default_4MB",
+      "FlashFreq=80",
+      "FlashMode=dio",
+      "UploadSpeed=921600",
+      "CPUFreq=240",
+      "EraseFlash=all",
+      "EventsRunCore=1",
+      "DebugLevel=none",
+      "UsbMode=cdc"
+    ]
+  }
+  

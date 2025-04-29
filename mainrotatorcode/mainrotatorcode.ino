@@ -9,7 +9,7 @@ LiquidCrystal_I2C lcd(0x27, 20, 4);
 // BNO055 I²C address: 0x28
 Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);
 
-static const float MOUNT_OFFSET = 49.0f; // Adjust for your pan-tilt mount
+static const float MOUNT_OFFSET = 47.0f; // Adjust for your pan-tilt mount
 
 float lastBearing = 9999;
 float lastElevation = 9999;

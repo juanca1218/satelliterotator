@@ -1,0 +1,6 @@
+{
+  "arduino.path": "C:\\Users\\adamm\\AppData\\Local\\Programs\\Arduino IDE",
+  "arduino.cli.path": "C:\\Users\\adamm\\AppData\\Local\\Programs\\Arduino IDE\\resources\\app\\lib\\backend\\resources\\arduino-cli.exe",
+  "arduino.enableUSBDetection": true,
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+}
