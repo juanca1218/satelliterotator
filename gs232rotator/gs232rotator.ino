@@ -112,13 +112,20 @@ void setup() {
   lcd.clear(); lcd.print("Initializing...");
 
   // BNO055 fusion setup
-  bno.begin(OPERATION_MODE_CONFIG);
+  if (!bno.begin()) { 
+    lcd.clear();
+    lcd.print("BNO055 FAIL!");
+    while (1); // Halt
+  }
+  //bno.begin(OPERATION_MODE_CONFIG);
   delay(100);
-  bno.setSensorOffsets((adafruit_bno055_offsets_t){0,0,-24,236,-38,-722,0,2,0,1000,734});
+  //bno.setSensorOffsets((adafruit_bno055_offsets_t){0,0,-24,236,-38,-722,0,2,0,1000,734});
+  //bno.setSensorOffsets((adafruit_bno055_offsets_t){ -22, 2, -29, -5, 0, -4, 202, 2, -654, 1000, 573 });
+  bno.setSensorOffsets((adafruit_bno055_offsets_t){ 7, -67, -21, 0, 2, 0, 265, -85, -700, 1000, 556 });
   delay(50);
   bno.setExtCrystalUse(true);
   delay(50);
-  bno.setMode(OPERATION_MODE_NDOF);
+  //bno.setMode(OPERATION_MODE_NDOF);
   delay(500);
   sensors_event_t discard; bno.getEvent(&discard);
 
@@ -137,15 +144,32 @@ void setup() {
   // Self-test
   lcd.clear(); lcd.print("Self-test...");
   const int tms=300;
+  lcd.clear(); lcd.print("UP");
   digitalWrite(relayElUp, HIGH); delay(tms); digitalWrite(relayElUp, LOW); delay(100);
+  lcd.clear(); lcd.print("DOWN");
   digitalWrite(relayElDown, HIGH); delay(tms); digitalWrite(relayElDown, LOW); delay(100);
+  lcd.clear(); lcd.print("LEFT");
   digitalWrite(relayAzLeft, HIGH); delay(tms); digitalWrite(relayAzLeft, LOW); delay(100);
+  lcd.clear(); lcd.print("RIGHT");
   digitalWrite(relayAzRight, HIGH); delay(tms); digitalWrite(relayAzRight, LOW); delay(100);
 
   lcd.clear(); lcd.print("Ready");
+  delay(150);
+
 }
 
 void updateOrientationDisplay() {
+  // GET CALIBRATION STATUS
+  uint8_t sys, gyro, accel, mag;
+  sys = gyro = accel = mag = 0;
+  bno.getCalibration(&sys, &gyro, &accel, &mag);
+
+  // Print to Serial Monitor (Very Useful!)
+  Serial.print("CAL: Sys="); Serial.print(sys);
+  Serial.print(" G="); Serial.print(gyro);
+  Serial.print(" A="); Serial.print(accel);
+  Serial.print(" M="); Serial.println(mag);
+
   sensors_event_t ev; bno.getEvent(&ev);
   float az = readHeading(ev);
   pushEl(ev.orientation.y + 47.0f);
@@ -154,6 +178,13 @@ void updateOrientationDisplay() {
   lcd.clear();
   lcd.setCursor(0,0); lcd.print("AZ:"); lcd.print(az,1);
   lcd.setCursor(0,1); lcd.print("EL:"); lcd.print(el,1);
+  // Display Calibration on LCD (Example - adjust position)
+  lcd.setCursor(10, 0); lcd.print("S:"); lcd.print(sys);
+  lcd.setCursor(10, 1); lcd.print("G:"); lcd.print(gyro);
+  lcd.setCursor(10, 2); lcd.print("A:"); lcd.print(accel);
+  lcd.setCursor(10, 3); lcd.print("M:"); lcd.print(mag);
+
+
   if (gpredictConnected) { lcd.setCursor(0,3); lcd.print("Connected"); }
 
   updateMovement();
