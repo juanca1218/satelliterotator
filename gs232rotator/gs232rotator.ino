@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <EEPROM.h>
-#include <LiquidCrystal_I2C.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BNO055.h>
 #include <utility/imumaths.h>
@@ -9,9 +10,11 @@
 #define RELAY_ACTIVE_LEVEL   HIGH
 #define RELAY_INACTIVE_LEVEL LOW
 
-// LCD: address 0x27, 20×4
-typedef LiquidCrystal_I2C LCD;
-LCD lcd(0x27, 20, 4);
+// —— OLED Setup ——
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // BNO055 IMU
 Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);
@@ -47,21 +50,21 @@ float getSmoothedEl() { float sum = 0; for (int i = 0; i < SMOOTH_WINDOW; i++) s
 float readHeading(const sensors_event_t &ev) {
   float h = ev.orientation.x;
   if (h < 0) h += 360;
-  h += 90; // mount offset
+  h += 90;
   if (h >= 360) h -= 360;
   return h;
 }
 
 // ——— Hard-coded calibration (optional) ———
-const bool USE_HARDCODED = false;
-const adafruit_bno055_offsets_t defaultOffsets = { 7, -67, -21, 0, 2, 0, 265, -85, -700, 1000, 556 };
+
+const bool USE_HARDCODED = true;
+const adafruit_bno055_offsets_t defaultOffsets = { -32, -59, -32, 216, -63, -654, -1, 2, 0, 1000, 746 };
 
 // ——— EEPROM calibration storage ———
-const uint32_t EEPROM_MAGIC  = 0x424E4F43;  // 'B' 'N' 'O' 'C'
+const uint32_t EEPROM_MAGIC  = 0x424E4F43;
 const int      MAGIC_ADDR    = 0;
 const int      OFFSETS_ADDR  = MAGIC_ADDR + sizeof(EEPROM_MAGIC);
 
-// Calibration routines
 void applyOffsets(const adafruit_bno055_offsets_t &o) {
   bno.setSensorOffsets(o);
   EEPROM.put(MAGIC_ADDR, EEPROM_MAGIC);
@@ -83,54 +86,115 @@ void printCalStats() {
   bno.getSensorOffsets(o);
   Serial.println("=== CALIBRATION OFFSETS ===");
   Serial.print("Accel Off: "); Serial.print(o.accel_offset_x); Serial.print(','); Serial.print(o.accel_offset_y); Serial.print(','); Serial.println(o.accel_offset_z);
-  Serial.print("Mag   Off: "); Serial.print(o.mag_offset_x); Serial.print(','); Serial.print(o.mag_offset_y); Serial.print(','); Serial.println(o.mag_offset_z);
-  Serial.print("Gyro  Off: "); Serial.print(o.gyro_offset_x); Serial.print(','); Serial.print(o.gyro_offset_y); Serial.print(','); Serial.println(o.gyro_offset_z);
+  Serial.print("Mag   Off: ");   Serial.print(o.mag_offset_x);   Serial.print(','); Serial.print(o.mag_offset_y);   Serial.print(','); Serial.println(o.mag_offset_z);
+  Serial.print("Gyro  Off: ");  Serial.print(o.gyro_offset_x);  Serial.print(','); Serial.print(o.gyro_offset_y);  Serial.print(','); Serial.println(o.gyro_offset_z);
   Serial.print("Accel Rad: "); Serial.println(o.accel_radius);
-  Serial.print("Mag   Rad: "); Serial.println(o.mag_radius);
+  Serial.print("Mag   Rad: ");   Serial.println(o.mag_radius);
   Serial.println("===========================");
 }
 
+// ——— Calibration with on-screen & LED feedback ———
 void calibrateAndStore() {
   Serial.println("🔄 CALIBRATION MODE — rotate until 3/3/3/3");
-  uint8_t sys, gyr, acc, mag;
-  do {
-    bno.getCalibration(&sys, &gyr, &acc, &mag);
-    Serial.print("CALIB: SYS="); Serial.print(sys);
-    Serial.print(" GYR="); Serial.print(gyr);
-    Serial.print(" ACC="); Serial.print(acc);
-    Serial.print(" MAG="); Serial.println(mag);
-    delay(500);
-  } while (sys < 3 || gyr < 3 || acc < 3 || mag < 3);
+  uint8_t sys=0, gyr=0, acc=0, mag=0;
 
+  while (sys < 3 || gyr < 3 || acc < 3 || mag < 3) {
+    bno.getCalibration(&sys, &gyr, &acc, &mag);
+
+    // Serial
+    Serial.print("CALIB: SYS="); Serial.print(sys);
+    Serial.print(" GYR=");    Serial.print(gyr);
+    Serial.print(" ACC=");    Serial.print(acc);
+    Serial.print(" MAG=");    Serial.println(mag);
+
+    // Flash NeoPixel Yellow
+    strip.setPixelColor(0, strip.Color(255, 255, 0));
+    strip.show(); delay(200);
+    strip.clear();
+    strip.show(); delay(200);
+
+    // OLED
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.println("CALIBRATION MODE");
+    display.setCursor(0, 12);  display.print("SYS="); display.print(sys);
+    display.setCursor(64,12);  display.print("GYR="); display.print(gyr);
+    display.setCursor(0, 24);  display.print("ACC="); display.print(acc);
+    display.setCursor(64,24);  display.print("MAG="); display.print(mag);
+    display.display();
+
+    delay(300);
+  }
+
+  // Fetch & store
   Serial.println("🎉 Calibrated — fetching offsets");
   adafruit_bno055_offsets_t o;
   bno.getSensorOffsets(o);
   applyOffsets(o);
   Serial.println("💾 Offsets written to EEPROM");
+
+  // Print initializer
+  Serial.println("Use these for defaultOffsets:");
+  Serial.print("const adafruit_bno055_offsets_t defaultOffsets = { ");
+  Serial.print(o.accel_offset_x); Serial.print(", ");
+  Serial.print(o.accel_offset_y); Serial.print(", ");
+  Serial.print(o.accel_offset_z); Serial.print(", ");
+  Serial.print(o.mag_offset_x);   Serial.print(", ");
+  Serial.print(o.mag_offset_y);   Serial.print(", ");
+  Serial.print(o.mag_offset_z);   Serial.print(", ");
+  Serial.print(o.gyro_offset_x);  Serial.print(", ");
+  Serial.print(o.gyro_offset_y);  Serial.print(", ");
+  Serial.print(o.gyro_offset_z);  Serial.print(", ");
+  Serial.print(o.accel_radius);   Serial.print(", ");
+  Serial.print(o.mag_radius);     Serial.println(" };");
+
+  // OLED “Done”
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("CALIBRATION DONE!");
+  display.display();
+  delay(1000);
 }
 
 void setup() {
   Serial.begin(115200);
   EEPROM.begin(512);
-  Serial.setTimeout(200);
   Wire.begin(10, 9);
 
-  lcd.init(); lcd.backlight();
-  lcd.clear(); lcd.print("Initializing...");
+  // NeoPixel first
+  strip.begin();
+  strip.setBrightness(50);
+  strip.clear();
+  strip.show();
 
+  // OLED init
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("SSD1306 failed");
+    for (;;);
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0,0);
+  display.println("Initializing...");
+  display.display();
+
+  // BNO055 init
   if (!bno.begin()) {
-    lcd.clear(); lcd.print("BNO055 FAIL!");
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.println("BNO055 FAIL!");
+    display.display();
     while (1);
   }
   delay(100);
 
-  // 1) Hard-coded?
+  // Calibration choice
   if (USE_HARDCODED) {
     Serial.println("Using hard-coded offsets");
     bno.setSensorOffsets(defaultOffsets);
-  }
-  // 2) EEPROM?
-  else {
+  } else {
     adafruit_bno055_offsets_t eoffs;
     if (loadEepromOffsets(eoffs)) {
       Serial.println("Loaded offsets from EEPROM");
@@ -145,25 +209,35 @@ void setup() {
   delay(500);
   sensors_event_t discard; bno.getEvent(&discard);
 
-  lcd.clear(); lcd.print("BNO055 NDOF");
+  // Self-test
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println("BNO055 NDOF");
+  display.display();
 
-  pinMode(relayAzLeft, OUTPUT); pinMode(relayAzRight, OUTPUT);
-  pinMode(relayElUp, OUTPUT);    pinMode(relayElDown, OUTPUT);
+  pinMode(relayAzLeft, OUTPUT);
+  pinMode(relayAzRight, OUTPUT);
+  pinMode(relayElUp, OUTPUT);
+  pinMode(relayElDown, OUTPUT);
   digitalWrite(relayAzLeft, RELAY_INACTIVE_LEVEL);
   digitalWrite(relayAzRight, RELAY_INACTIVE_LEVEL);
   digitalWrite(relayElUp, RELAY_INACTIVE_LEVEL);
   digitalWrite(relayElDown, RELAY_INACTIVE_LEVEL);
 
-  strip.begin(); strip.show();
-
-  lcd.clear(); lcd.print("Self-test...");
   const int tms = 300;
-  lcd.clear(); lcd.print("UP");    digitalWrite(relayElUp, HIGH); delay(tms); digitalWrite(relayElUp, LOW); delay(100);
-  lcd.clear(); lcd.print("DOWN");  digitalWrite(relayElDown, HIGH); delay(tms); digitalWrite(relayElDown, LOW); delay(100);
-  lcd.clear(); lcd.print("LEFT");  digitalWrite(relayAzLeft, HIGH); delay(tms); digitalWrite(relayAzLeft, LOW); delay(100);
-  lcd.clear(); lcd.print("RIGHT"); digitalWrite(relayAzRight, HIGH); delay(tms); digitalWrite(relayAzRight, LOW); delay(100);
+  display.clearDisplay(); display.setCursor(0,0); display.println("UP");    display.display();
+  digitalWrite(relayElUp, HIGH);    delay(tms); digitalWrite(relayElUp, LOW);    delay(100);
+  display.clearDisplay(); display.setCursor(0,0); display.println("DOWN");  display.display();
+  digitalWrite(relayElDown, HIGH);  delay(tms); digitalWrite(relayElDown, LOW);  delay(100);
+  display.clearDisplay(); display.setCursor(0,0); display.println("LEFT");  display.display();
+  digitalWrite(relayAzLeft, HIGH);  delay(tms); digitalWrite(relayAzLeft, LOW);  delay(100);
+  display.clearDisplay(); display.setCursor(0,0); display.println("RIGHT"); display.display();
+  digitalWrite(relayAzRight, HIGH); delay(tms); digitalWrite(relayAzRight, LOW); delay(100);
 
-  lcd.clear(); lcd.print("Ready");
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println("Ready");
+  display.display();
   delay(150);
 }
 
@@ -202,62 +276,108 @@ void updateMovement() {
 }
 
 void updateOrientationDisplay() {
+  static bool blinkState = false;
   uint8_t sys, gyro, accel, mag;
   bno.getCalibration(&sys, &gyro, &accel, &mag);
   sensors_event_t ev; bno.getEvent(&ev);
   float az = readHeading(ev);
   pushEl(ev.orientation.y + 47.0f);
   float el = getSmoothedEl();
-  lcd.clear();
-  lcd.setCursor(0,0); lcd.print("AZ:"); lcd.print(az,1);
-  lcd.setCursor(0,1); lcd.print("EL:"); lcd.print(el,1);
-  lcd.setCursor(10,0); lcd.print("S:"); lcd.print(sys);
-  lcd.setCursor(10,1); lcd.print("G:"); lcd.print(gyro);
-  lcd.setCursor(10,2); lcd.print("A:"); lcd.print(accel);
-  lcd.setCursor(10,3); lcd.print("M:"); lcd.print(mag);
-  if (gpredictConnected) { lcd.setCursor(0,3); lcd.print("Connected"); }
+
+  // Blink yellow if sys < 3
+  if (sys < 3) {
+    blinkState = !blinkState;
+    if (blinkState) strip.setPixelColor(0, strip.Color(255,255,0));
+    else           strip.clear();
+    strip.show();
+  }
+  else if (gpredictConnected) {
+    strip.setPixelColor(0, strip.Color(0,100,0));
+    strip.show();
+  }
+
+  display.clearDisplay();
+  display.setCursor(0,0);   display.print("AZ:"); display.print(az,1);
+  display.setCursor(0,8);   display.print("EL:"); display.print(el,1);
+  display.setCursor(70,0);  display.print("S:");  display.print(sys);
+  display.setCursor(70,8);  display.print("G:");  display.print(gyro);
+  display.setCursor(70,16); display.print("A:");  display.print(accel);
+  display.setCursor(70,24); display.print("M:");  display.print(mag);
+  if (gpredictConnected) {
+    display.setCursor(0,56);
+    display.print("Connected");
+  }
+  display.display();
+
   updateMovement();
 }
 
 void handleCommand(const String &cmd) {
   if (!gpredictConnected) {
     gpredictConnected = true;
-    strip.setPixelColor(0, strip.Color(0,100,0)); strip.show();
+    strip.setPixelColor(0, strip.Color(0,100,0));
+    strip.show();
   }
   if (cmd.startsWith("AZ")) {
     if (cmd.length()>3 && isDigit(cmd.charAt(3))) {
-      targetAz = cmd.substring(3).toFloat(); azMove = true; Serial.print("RPRT 0\r");
+      targetAz = cmd.substring(3).toFloat();
+      azMove = true;
+      Serial.print("RPRT 0\r");
     } else {
       sensors_event_t ev; bno.getEvent(&ev);
-      char buf[16]; snprintf(buf, sizeof(buf), "AZ %.1f", readHeading(ev));
+      char buf[16];
+      snprintf(buf, sizeof(buf), "AZ %.1f", readHeading(ev));
       Serial.print(buf); Serial.print("\r");
     }
-  } else if (cmd.startsWith("EL")) {
+  }
+  else if (cmd.startsWith("EL")) {
     if (cmd.length()>3 && isDigit(cmd.charAt(3))) {
-      targetEl = cmd.substring(3).toFloat(); elMove = true; Serial.print("RPRT 0\r");
+      targetEl = cmd.substring(3).toFloat();
+      elMove = true;
+      Serial.print("RPRT 0\r");
     } else {
-      sensors_event_t ev; bno.getEvent(&ev); float raw = ev.orientation.y + 47.0f; pushEl(raw);
-      char buf[16]; snprintf(buf, sizeof(buf), "EL %.1f", getSmoothedEl());
+      sensors_event_t ev; bno.getEvent(&ev);
+      float raw = ev.orientation.y + 47.0f; pushEl(raw);
+      char buf[16];
+      snprintf(buf, sizeof(buf), "EL %.1f", getSmoothedEl());
       Serial.print(buf); Serial.print("\r");
     }
-  } else if (cmd.equalsIgnoreCase("P")) {
+  }
+  else if (cmd.equalsIgnoreCase("P")) {
     sensors_event_t ev; bno.getEvent(&ev);
-    float heading = readHeading(ev); float raw = ev.orientation.y + 47.0f; pushEl(raw);
-    char buf[32]; snprintf(buf, sizeof(buf), "%.1f %.1f", heading, getSmoothedEl());
+    float heading = readHeading(ev);
+    float raw = ev.orientation.y + 47.0f; pushEl(raw);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%.1f %.1f", heading, getSmoothedEl());
     Serial.print(buf); Serial.print("\r");
-  } else if (cmd.equalsIgnoreCase("CALSTATS")) {
-    printCalStats(); Serial.print("RPRT 0\r");
-  } else if (cmd.equalsIgnoreCase("CALIBRATE")) {
-    Serial.println("Re-running calibration..."); calibrateAndStore(); Serial.print("RPRT 0\r");
-  } else if (cmd.equalsIgnoreCase("SA")) {
-    digitalWrite(relayAzLeft, RELAY_INACTIVE_LEVEL); digitalWrite(relayAzRight, RELAY_INACTIVE_LEVEL); Serial.print("RPRT 0\r");
-  } else if (cmd.equalsIgnoreCase("SE")) {
-    digitalWrite(relayElUp, RELAY_INACTIVE_LEVEL); digitalWrite(relayElDown, RELAY_INACTIVE_LEVEL); Serial.print("RPRT 0\r");
-  } else if (cmd.equalsIgnoreCase("VE")) {
+  }
+  else if (cmd.equalsIgnoreCase("CALSTATS")) {
+    printCalStats();
+    Serial.print("RPRT 0\r");
+  }
+  else if (cmd.equalsIgnoreCase("CALIBRATE")) {
+    Serial.println("Re-running calibration...");
+    calibrateAndStore();
+    Serial.print("RPRT 0\r");
+  }
+  else if (cmd.equalsIgnoreCase("SA")) {
+    digitalWrite(relayAzLeft, RELAY_INACTIVE_LEVEL);
+    digitalWrite(relayAzRight, RELAY_INACTIVE_LEVEL);
+    Serial.print("RPRT 0\r");
+  }
+  else if (cmd.equalsIgnoreCase("SE")) {
+    digitalWrite(relayElUp, RELAY_INACTIVE_LEVEL);
+    digitalWrite(relayElDown, RELAY_INACTIVE_LEVEL);
+    Serial.print("RPRT 0\r");
+  }
+  else if (cmd.equalsIgnoreCase("VE")) {
     Serial.print("VEAdamESP32v1.0\r");
-  } else if (cmd.equalsIgnoreCase("Q")) {
-    gpredictConnected = false; strip.clear(); strip.show();
-  } else {
+  }
+  else if (cmd.equalsIgnoreCase("Q")) {
+    gpredictConnected = false;
+    strip.clear(); strip.show();
+  }
+  else {
     Serial.print("RPRT -1\r");
   }
 }
@@ -266,8 +386,16 @@ void loop() {
   while (Serial.available()) {
     char c = Serial.read();
     if (c=='\r' || c=='\n') {
-      if (inputCommand.length()) { inputCommand.trim(); handleCommand(inputCommand); inputCommand=""; }
+      if (inputCommand.length()) {
+        inputCommand.trim();
+        handleCommand(inputCommand);
+        inputCommand = "";
+      }
     } else inputCommand += c;
   }
-  if (millis() - lastUpdateMs >= updateInterval) { updateOrientationDisplay(); lastUpdateMs = millis(); }
+
+  if (millis() - lastUpdateMs >= updateInterval) {
+    updateOrientationDisplay();
+    lastUpdateMs = millis();
+  }
 }
