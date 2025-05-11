@@ -5,10 +5,12 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BNO055.h>
 #include <utility/imumaths.h>
-#include <Adafruit_NeoPixel.h>
 
 #define RELAY_ACTIVE_LEVEL   HIGH
 #define RELAY_INACTIVE_LEVEL LOW
+
+bool displayCommandActivity = false;
+
 
 // —— OLED Setup ——
 #define SCREEN_WIDTH 128
@@ -24,11 +26,6 @@ const int relayAzLeft  = 13;
 const int relayAzRight = 14;
 const int relayElDown  = 21;
 const int relayElUp    = 47;
-
-// NeoPixel indicator
-#define LED_PIN    48
-#define NUM_LEDS   1
-Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // GS-232 state
 double targetAz = NAN, targetEl = NAN;
@@ -46,18 +43,20 @@ int elIndex = 0;
 void pushEl(float v) { elHistory[elIndex] = v; elIndex = (elIndex+1) % SMOOTH_WINDOW; }
 float getSmoothedEl() { float sum = 0; for (int i = 0; i < SMOOTH_WINDOW; i++) sum += elHistory[i]; return sum / SMOOTH_WINDOW; }
 
+// Directv Mount Elevation Offset
+float elevationOffset = 42.0f;
+
 // Convert BNO055 heading (-180..180) -> 0..360 + offset
 float readHeading(const sensors_event_t &ev) {
   float h = ev.orientation.x;
   if (h < 0) h += 360;
-  h += 90;
+  h += 90; // mount offset
   if (h >= 360) h -= 360;
   return h;
 }
 
 // ——— Hard-coded calibration (optional) ———
-
-const bool USE_HARDCODED = true;
+const bool USE_HARDCODED = false;
 const adafruit_bno055_offsets_t defaultOffsets = { -32, -59, -32, 216, -63, -654, -1, 2, 0, 1000, 746 };
 
 // ——— EEPROM calibration storage ———
@@ -93,27 +92,17 @@ void printCalStats() {
   Serial.println("===========================");
 }
 
-// ——— Calibration with on-screen & LED feedback ———
 void calibrateAndStore() {
   Serial.println("🔄 CALIBRATION MODE — rotate until 3/3/3/3");
   uint8_t sys=0, gyr=0, acc=0, mag=0;
 
   while (sys < 3 || gyr < 3 || acc < 3 || mag < 3) {
     bno.getCalibration(&sys, &gyr, &acc, &mag);
-
-    // Serial
     Serial.print("CALIB: SYS="); Serial.print(sys);
     Serial.print(" GYR=");    Serial.print(gyr);
     Serial.print(" ACC=");    Serial.print(acc);
     Serial.print(" MAG=");    Serial.println(mag);
 
-    // Flash NeoPixel Yellow
-    strip.setPixelColor(0, strip.Color(255, 255, 0));
-    strip.show(); delay(200);
-    strip.clear();
-    strip.show(); delay(200);
-
-    // OLED
     display.clearDisplay();
     display.setTextSize(1);
     display.setCursor(0, 0);
@@ -127,14 +116,12 @@ void calibrateAndStore() {
     delay(300);
   }
 
-  // Fetch & store
   Serial.println("🎉 Calibrated — fetching offsets");
   adafruit_bno055_offsets_t o;
   bno.getSensorOffsets(o);
   applyOffsets(o);
   Serial.println("💾 Offsets written to EEPROM");
 
-  // Print initializer
   Serial.println("Use these for defaultOffsets:");
   Serial.print("const adafruit_bno055_offsets_t defaultOffsets = { ");
   Serial.print(o.accel_offset_x); Serial.print(", ");
@@ -149,7 +136,6 @@ void calibrateAndStore() {
   Serial.print(o.accel_radius);   Serial.print(", ");
   Serial.print(o.mag_radius);     Serial.println(" };");
 
-  // OLED “Done”
   display.clearDisplay();
   display.setCursor(0, 0);
   display.println("CALIBRATION DONE!");
@@ -162,13 +148,6 @@ void setup() {
   EEPROM.begin(512);
   Wire.begin(10, 9);
 
-  // NeoPixel first
-  strip.begin();
-  strip.setBrightness(50);
-  strip.clear();
-  strip.show();
-
-  // OLED init
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println("SSD1306 failed");
     for (;;);
@@ -180,7 +159,6 @@ void setup() {
   display.println("Initializing...");
   display.display();
 
-  // BNO055 init
   if (!bno.begin()) {
     display.clearDisplay();
     display.setCursor(0,0);
@@ -190,16 +168,13 @@ void setup() {
   }
   delay(100);
 
-  // Calibration choice
   if (USE_HARDCODED) {
-    Serial.println("Using hard-coded offsets");
     bno.setSensorOffsets(defaultOffsets);
-  } else {
+  }
+  else {
     adafruit_bno055_offsets_t eoffs;
-    if (loadEepromOffsets(eoffs)) {
-      Serial.println("Loaded offsets from EEPROM");
-    } else {
-      Serial.println("No stored offsets → calibrating now");
+    if (!loadEepromOffsets(eoffs)) {
+      Serial.println("No EEPROM offsets → calibrating now");
       calibrateAndStore();
     }
   }
@@ -209,7 +184,6 @@ void setup() {
   delay(500);
   sensors_event_t discard; bno.getEvent(&discard);
 
-  // Self-test
   display.clearDisplay();
   display.setCursor(0,0);
   display.println("BNO055 NDOF");
@@ -238,13 +212,14 @@ void setup() {
   display.setCursor(0,0);
   display.println("Ready");
   display.display();
+  Serial.println("Ready! Type HELP for list of commands.");
   delay(150);
 }
 
 void updateMovement() {
   sensors_event_t ev; bno.getEvent(&ev);
   float currAz = readHeading(ev);
-  float rawEl  = ev.orientation.y + 47.0f;
+  float rawEl  = ev.orientation.y + elevationOffset;
   pushEl(rawEl);
   float currEl = getSmoothedEl();
 
@@ -276,48 +251,60 @@ void updateMovement() {
 }
 
 void updateOrientationDisplay() {
-  static bool blinkState = false;
+  static float lastTargetAz = NAN;
+  static float lastTargetEl = NAN;
+
   uint8_t sys, gyro, accel, mag;
   bno.getCalibration(&sys, &gyro, &accel, &mag);
   sensors_event_t ev; bno.getEvent(&ev);
   float az = readHeading(ev);
-  pushEl(ev.orientation.y + 47.0f);
+  pushEl(ev.orientation.y + elevationOffset);
   float el = getSmoothedEl();
 
-  // Blink yellow if sys < 3
-  if (sys < 3) {
-    blinkState = !blinkState;
-    if (blinkState) strip.setPixelColor(0, strip.Color(255,255,0));
-    else           strip.clear();
-    strip.show();
-  }
-  else if (gpredictConnected) {
-    strip.setPixelColor(0, strip.Color(0,100,0));
-    strip.show();
-  }
+  // Store last targets if move flags are active
+  if (azMove) lastTargetAz = targetAz;
+  if (elMove) lastTargetEl = targetEl;
 
   display.clearDisplay();
-  display.setCursor(0,0);   display.print("AZ:"); display.print(az,1);
-  display.setCursor(0,8);   display.print("EL:"); display.print(el,1);
-  display.setCursor(70,0);  display.print("S:");  display.print(sys);
-  display.setCursor(70,8);  display.print("G:");  display.print(gyro);
-  display.setCursor(70,16); display.print("A:");  display.print(accel);
-  display.setCursor(70,24); display.print("M:");  display.print(mag);
+  display.setCursor(0, 0);   display.print("AZ:"); display.print(az,1);
+  display.setCursor(0, 8);   display.print("EL:"); display.print(el,1);
+
+  // Spacer line
+  display.setCursor(0, 16);  display.println("");
+
+  // Show TAZ/TEL if movement is requested
+  if (!isnan(lastTargetAz)) {
+    display.setCursor(0, 24); display.print("TAZ:"); display.print(lastTargetAz,1);
+  }
+  if (!isnan(lastTargetEl)) {
+    display.setCursor(0, 32); display.print("TEL:"); display.print(lastTargetEl,1);
+  }
+
+  // Calibration + Connection status
+  display.setCursor(70, 0);  display.print("S:");  display.print(sys);
+  display.setCursor(70, 8);  display.print("G:");  display.print(gyro);
+  display.setCursor(70, 16); display.print("A:");  display.print(accel);
+  display.setCursor(70, 24); display.print("M:");  display.print(mag);
   if (gpredictConnected) {
-    display.setCursor(0,56);
+    display.setCursor(0, 56);
     display.print("Connected");
   }
-  display.display();
+  
+  if (displayCommandActivity) {
+    display.setCursor(SCREEN_WIDTH - 6, SCREEN_HEIGHT - 8);  // bottom right
+    display.print("D");
+    displayCommandActivity = false;  // clear after showing once
+  }
 
+  display.display();
   updateMovement();
 }
 
+
 void handleCommand(const String &cmd) {
-  if (!gpredictConnected) {
-    gpredictConnected = true;
-    strip.setPixelColor(0, strip.Color(0,100,0));
-    strip.show();
-  }
+  gpredictConnected = true;
+  displayCommandActivity = true;
+
   if (cmd.startsWith("AZ")) {
     if (cmd.length()>3 && isDigit(cmd.charAt(3))) {
       targetAz = cmd.substring(3).toFloat();
@@ -330,6 +317,22 @@ void handleCommand(const String &cmd) {
       Serial.print(buf); Serial.print("\r");
     }
   }
+    else if (cmd.equalsIgnoreCase("HELP")) {
+    Serial.println("\n=== Available Commands ===");
+    Serial.println("AZ         → Get current azimuth");
+    Serial.println("AZxxx.x    → Set target azimuth (e.g. AZ123.4)");
+    Serial.println("EL         → Get current elevation");
+    Serial.println("ELxxx.x    → Set target elevation (e.g. EL45.6)");
+    Serial.println("P          → Get current AZ and EL (position)");
+    Serial.println("CALIBRATE  → Start calibration and store offsets");
+    Serial.println("CALSTATS   → Print current calibration values");
+    Serial.println("SA         → Stop azimuth movement");
+    Serial.println("SE         → Stop elevation movement");
+    Serial.println("VE         → Get firmware version");
+    Serial.println("Q or q     → Disconnect from Gpredict");
+    Serial.println("HELP       → Show this help message");
+    Serial.print("RPRT 0\r");
+  }
   else if (cmd.startsWith("EL")) {
     if (cmd.length()>3 && isDigit(cmd.charAt(3))) {
       targetEl = cmd.substring(3).toFloat();
@@ -337,7 +340,7 @@ void handleCommand(const String &cmd) {
       Serial.print("RPRT 0\r");
     } else {
       sensors_event_t ev; bno.getEvent(&ev);
-      float raw = ev.orientation.y + 47.0f; pushEl(raw);
+      float raw = ev.orientation.y + elevationOffset; pushEl(raw);
       char buf[16];
       snprintf(buf, sizeof(buf), "EL %.1f", getSmoothedEl());
       Serial.print(buf); Serial.print("\r");
@@ -346,7 +349,7 @@ void handleCommand(const String &cmd) {
   else if (cmd.equalsIgnoreCase("P")) {
     sensors_event_t ev; bno.getEvent(&ev);
     float heading = readHeading(ev);
-    float raw = ev.orientation.y + 47.0f; pushEl(raw);
+    float raw = ev.orientation.y + elevationOffset; pushEl(raw);
     char buf[32];
     snprintf(buf, sizeof(buf), "%.1f %.1f", heading, getSmoothedEl());
     Serial.print(buf); Serial.print("\r");
@@ -373,9 +376,8 @@ void handleCommand(const String &cmd) {
   else if (cmd.equalsIgnoreCase("VE")) {
     Serial.print("VEAdamESP32v1.0\r");
   }
-  else if (cmd.equalsIgnoreCase("Q")) {
+  else if (cmd.equalsIgnoreCase("Q") || cmd.equalsIgnoreCase("q")) {
     gpredictConnected = false;
-    strip.clear(); strip.show();
   }
   else {
     Serial.print("RPRT -1\r");
