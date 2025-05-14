@@ -1,9 +1,0 @@
-*.hex
-*.elf
-*.bin
-*.d
-*.o
-*.pyc
-.DS_Store
-__pycache__/
-.arduino/
