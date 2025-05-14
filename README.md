@@ -1,3 +1,6 @@
+ ![Platform](https://img.shields.io/badge/platform-ESP32--S3-blue)    ![Protocol](https://img.shields.io/badge/protocol-GS--232-green)    ![Gpredict](https://img.shields.io/badge/compatible-Gpredict-brightgreen)    ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) 
+
+
 # Gpredict GS-232 Satellite Rotator Controller
 
 This repository contains two complementary components for a DIY satellite tracking rotator system:
