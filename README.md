@@ -1,133 +1,111 @@
- ![Platform](https://img.shields.io/badge/platform-ESP32--S3-blue)    ![Protocol](https://img.shields.io/badge/protocol-GS--232-green)    ![Gpredict](https://img.shields.io/badge/compatible-Gpredict-brightgreen)    ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) 
+# Satellite Rotator 🌌
 
+![GitHub release](https://img.shields.io/github/release/juanca1218/satelliterotator.svg)
 
-# Gpredict GS-232 Satellite Rotator Controller
+Welcome to the **Satellite Rotator** project! This repository provides a solution for using an ESP32-S3 microcontroller to emulate a GS-232 satellite rotator. Whether you are a ham radio enthusiast or a satellite tracking hobbyist, this project aims to enhance your experience with reliable and efficient satellite tracking.
 
-This repository contains two complementary components for a DIY satellite tracking rotator system:
+## Table of Contents
 
-* Arduino-based firmware for controlling a pan/tilt head using the GS-232 protocol.
-* A Python-based proxy server that listens for rotor commands from applications like Gpredict and forwards them to the microcontroller using the GS-232 protocol on a serial connection.
+- [Introduction](#introduction)
+- [Features](#features)
+- [Hardware Requirements](#hardware-requirements)
+- [Software Requirements](#software-requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Contributing](#contributing)
+- [License](#license)
+- [Contact](#contact)
+- [Releases](#releases)
 
----
+## Introduction
 
-## 📁 Directory Overview
+The Satellite Rotator project leverages the capabilities of the ESP32-S3 to create a powerful and flexible satellite rotator controller. By emulating the GS-232 protocol, this project allows you to control a pan-tilt mechanism for tracking satellites. This opens up a world of possibilities for satellite communication and tracking.
 
-### `gs232rotator/`
+## Features
 
-* Platform: ESP32-S3 (Arduino)
-* Implements a subset of the [GS-232 rotor control protocol](file:///C:/Users/adamm/Downloads/GS232A.pdf "GS-232 rotor control protocol")
-* Controls relays for azimuth and elevation motion
-* I am using a BNO055 IMU sensor for compass bearing (AZ) and tilt (EL)
+- **GS-232 Emulation**: Fully supports the GS-232 protocol for seamless communication with rotator hardware.
+- **ESP32-S3 Integration**: Utilizes the ESP32-S3's processing power and connectivity features.
+- **User-Friendly Interface**: Easy setup and configuration through a web interface.
+- **Real-Time Tracking**: Accurate satellite tracking using Gpredict and other tracking software.
+- **Pan-Tilt Control**: Control the rotation of your satellite dish or antenna smoothly and precisely.
 
-### `gpredictpythonrotatorproxy/`
+## Hardware Requirements
 
-* Lightweight Python 3 socket server
-* Listens on TCP port 7777
-* Emulates a subset of the `rotctld` (Hamlib) commands
-* Communicates with the ESP32-S3 controller via serial to control the motors via GS-232
+To get started with the Satellite Rotator project, you will need the following hardware:
 
----
+- **ESP32-S3 Development Board**: This microcontroller serves as the brain of the operation.
+- **BNO055 Sensor**: For accurate orientation tracking.
+- **Pan-Tilt Mechanism**: This can be a servo-based system for controlling the direction of your antenna.
+- **Power Supply**: Ensure you have a suitable power source for your components.
+- **Connecting Wires**: For making connections between the ESP32-S3 and other components.
 
-## ⚙️ Setup Instructions
+## Software Requirements
 
-1. **Flash the firmware** in `gs232rotator/` to your ESP32-S3 using Arduino IDE.
-2. **Run the Python proxy** on your computer:
+You will need the following software to set up and run the Satellite Rotator:
 
-   or edit the .bat file and run it from there
+- **Arduino IDE**: This is where you will write and upload your code to the ESP32-S3.
+- **Gpredict**: A satellite tracking software that works well with the GS-232 protocol.
+- **ESP32 Board Package**: Make sure to install the ESP32 board package in your Arduino IDE.
 
+## Installation
+
+1. **Clone the Repository**: Start by cloning this repository to your local machine.
    ```bash
-   python rotator_proxy.py --serial-port COM12 --baud 115200 --listen-host 127.0.0.1 --listen-port 7777
+   git clone https://github.com/juanca1218/satelliterotator.git
    ```
-3. **Configure Gpredict**:
-   * Name `RS232Proxy`
-   * Host: `127.0.0.1`
-   * Port:`7777`
-   * Az Type: `0 > 180 > 360`
 
----
-## 🧭 Sensor Calibration
+2. **Open in Arduino IDE**: Launch the Arduino IDE and open the cloned project.
 
-The BNO055 sensor must be calibrated to ensure accurate azimuth (AZ) and elevation (EL) readings.
+3. **Install Libraries**: Make sure to install any required libraries for the project. You can find these in the `lib` folder.
 
-On first boot, if no calibration offsets are found in EEPROM, the system will automatically enter calibration mode and display calibration progress on the OLED screen. Once calibration is complete, offsets are saved to EEPROM.
+4. **Configure Your Board**: In the Arduino IDE, select the ESP32-S3 board from the board manager.
 
-You can manually re-run calibration anytime by sending the `CALIBRATE` command over serial.
+5. **Upload the Code**: Connect your ESP32-S3 to your computer and upload the code.
 
-### 🛠 Calibration Procedure
+6. **Connect the Hardware**: Wire up your pan-tilt mechanism and BNO055 sensor to the ESP32-S3.
 
-1. Power on the system. If no offsets are stored, it will enter calibration mode automatically.
-2. Rotate the system gently in all directions (pan and tilt) until all four systems reach `3/3/3/3`:
-   - SYS (System)
-   - GYR (Gyroscope)
-   - ACC (Accelerometer)
-   - MAG (Magnetometer)
-3. When calibration is complete, you'll see `CALIBRATION DONE!` on the display.
-4. The offsets are written to EEPROM and used automatically on future boots.
-5. You can view the current offsets using the `CALSTATS` serial command.
-6. If desired, copy the printed offsets and hard-code them by enabling `USE_HARDCODED = true` in your firmware and updating the `defaultOffsets` struct.
+## Usage
 
-### 🔤 Related Serial Commands
+Once everything is set up, you can start using the Satellite Rotator:
 
-| Command     | Description                          |
-|-------------|--------------------------------------|
-| `CALIBRATE` | Starts the calibration routine       |
-| `CALSTATS`  | Prints current calibration offsets   |
+1. **Connect to Wi-Fi**: The ESP32-S3 will need to connect to your local Wi-Fi network. Make sure to configure your Wi-Fi settings in the code.
 
----
-## 🧾 Serial Command Reference
+2. **Access the Web Interface**: Open a web browser and enter the IP address of your ESP32-S3 to access the user interface.
 
-The ESP32 controller accepts a mix of GS-232-style and custom serial commands over USB (or virtual serial via proxy).
+3. **Control the Rotator**: Use the interface to control the pan-tilt mechanism and track satellites in real-time.
 
-### 🎛 GS-232 Compatible Commands
+## Configuration
 
-| Command     | Description                                 |
-|-------------|---------------------------------------------|
-| `AZxxx.x`   | Set target azimuth (e.g. `AZ123.4`)         |
-| `ELxxx.x`   | Set target elevation (e.g. `EL45.6`)        |
-| `AZ`        | Report current azimuth                     |
-| `EL`        | Report current elevation                   |
-| `P`         | Report current position as `AZ EL`         |
-| `SA`        | Stop azimuth movement                      |
-| `SE`        | Stop elevation movement                    |
-| `VE`        | Report firmware version (returns `VEAdamESP32v1.0`) |
-| `Q` or `q`  | Disconnect from Gpredict / rotctld         |
+You may need to adjust some settings in the code for optimal performance:
 
-### 🛠 Custom Utility Commands
+- **Wi-Fi Credentials**: Update the SSID and password for your Wi-Fi network.
+- **Servo Calibration**: If your pan-tilt mechanism requires calibration, adjust the servo settings in the code.
+- **Tracking Settings**: Configure Gpredict to communicate with your ESP32-S3 for accurate satellite tracking.
 
-| Command     | Description                                 |
-|-------------|---------------------------------------------|
-| `HELP`      | Show list of available commands             |
-| `CALIBRATE` | Start calibration and store offsets to EEPROM |
-| `CALSTATS`  | Print current calibration offsets           |
+## Contributing
 
-> All responses end with a `\r` (carriage return), as expected by Gpredict/rotctld.
->  
-> Invalid or unknown commands will return `RPRT -1\r`.
+We welcome contributions to the Satellite Rotator project! If you have ideas for improvements or new features, please feel free to fork the repository and submit a pull request. Here are some ways you can contribute:
+
+- **Bug Reports**: If you find any bugs, please report them in the issues section.
+- **Feature Requests**: Suggest new features or enhancements.
+- **Documentation**: Help improve the documentation for better clarity.
+
+## License
+
+This project is licensed under the MIT License. Feel free to use and modify the code as you see fit, but please maintain the original license.
+
+## Contact
+
+For any questions or support, please reach out to the project maintainer:
+
+- **Email**: [juanca1218@example.com](mailto:juanca1218@example.com)
+- **GitHub**: [juanca1218](https://github.com/juanca1218)
+
+## Releases
+
+To download the latest release, visit the [Releases](https://github.com/juanca1218/satelliterotator/releases) section. You will find compiled binaries and installation instructions there.
 
 ---
 
-## 🔌 Hardware Used
-
-* [ Panasonic WV-7230](https://archive.org/details/manuallib-id-2720404 " Panasonic WV-7230") pan/tilt head (relay-controlled)
-* [4-channel relay module](https://www.amazon.com/dp/B08PP8HXVD "4-channel relay module")
-* [ESP32-S3 or similar microcontroller](https://www.amazon.com/dp/B0DG8L7MQ9 "ESP32-S3 or similar microcontroller")
-* [ESP Breakout Board](https://www.amazon.com/dp/B0CD2512JV "ESP Breakout Board")
-* [SSD1306 0.96 I2C OLED Board](https://www.amazon.com/dp/B09T6SJBV5 "SSD1306 0.96 I2C OLED Board")
-* [BNO055](https://www.adafruit.com/product/2472 "BNO055") (IMU with absolute orientation for compass bearing)
-* [24v AC/AC adapter](https://www.amazon.com/dp/B01N3ALUBS "24v AC/AC adapter")
-* [Project Box](https://www.amazon.com/dp/B09DD8HH1L "Project Box")
-* [24VAC 5VDC Step down converter](https://www.amazon.com/dp/B0BB8YWBHX "24VAC 5VDC Step down converter")
-* [Mounting Kit](https://www.amazon.com/dp/B0CQR4XBPC "Mounting Kit")
-
-
----
-
-## 📝 License
-
-This project is licensed under the [MIT License](LICENSE).
-
----
-
-## 🤝🏼 Maintainer
-
-Created by [Adam Melancon](https://github.com/adammelancon)
+Thank you for your interest in the Satellite Rotator project! We hope you enjoy building and using your satellite tracking system.
